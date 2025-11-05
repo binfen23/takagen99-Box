@@ -11,24 +11,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 8
+      - name: Set up JDK 11  # 关键修改：AGP 7.4+ 必须用 Java 11
         uses: actions/setup-java@v3
         with:
-          java-version: '8'
+          java-version: '11'
           distribution: 'temurin'
+          cache: gradle  # 缓存 Gradle 依赖，加速构建
 
       - name: Build With Gradle
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --build-cache --parallel --daemon --warning-mode all
+          ./gradlew clean assembleRelease \  # 增加 clean 避免缓存冲突
+            --build-cache \
+            --parallel \
+            --daemon \
+            --warning-mode all \
+            -Dorg.gradle.java.home=$JAVA_HOME  # 明确指定 Java 路径
 
       - name: Prepare APK
         run: |
           mkdir -p ${{ github.workspace }}/apk/
-          find . -name "*.apk" -exec cp {} ${{ github.workspace }}/apk/ \;
+          find . -name "*.apk" -type f -exec cp {} ${{ github.workspace }}/apk/ \;
+          # 打印找到的 APK 文件，便于调试
+          echo "Found APK files:"
+          ls -l ${{ github.workspace }}/apk/
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: box
-          path: ${{ github.workspace }}/apk/*
+          path: ${{ github.workspace }}/apk/*.apk  # 明确匹配 APK 文件
+          retention-days: 30  # 可选：设置 artifacts 保留时间
