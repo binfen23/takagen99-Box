@@ -57,21 +57,24 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Release APK
+      - name: Build All APK Variants
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --build-cache --parallel
+          ./gradlew assemble --build-cache --parallel
 
-      - name: Find and Verify APK
+      - name: Find Any APK File
         id: find_apk
         run: |
-          APK_PATH=$(find . -path "*/build/outputs/apk/release/*.apk" | head -n1)
+          APK_PATH=$(find . -name "*.apk" | head -n1)
           if [ -z "$APK_PATH" ]; then
-            echo "❌ No APK found! Build may have failed."
+            echo "❌ No APK file found in the entire project!"
+            echo "Listing all .apk files for debugging:"
+            find . -name "*.apk" -o -name "*apk*" | xargs ls -la 2>/dev/null || echo "None found."
             exit 1
           fi
           echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-          echo "✅ Found APK: $APK_PATH"
+          echo "✅ APK found at: $APK_PATH"
+          ls -lh "$APK_PATH"
 
       - name: Upload APK as Artifact
         uses: actions/upload-artifact@v4
