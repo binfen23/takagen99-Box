@@ -1,6 +1,8 @@
-name: Build Android APK (Manual)
+name: Build and Release
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -8,35 +10,58 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: 'gradle'
+      - name: Set Up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: Create local.properties
-      run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
+      - name: Create local.properties
+        run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
-    - name: Fix buildPython path for CI (replace Windows path with python3)
-      run: |
-        # 替换 pyramid/build.gradle 中的 buildPython 行
-        sed -i 's|buildPython.*|buildPython "python3"|' pyramid/build.gradle
+      - name: Fix buildPython path for CI
+        run: |
+          # 替换 pyramid/build.gradle 中的 buildPython 行（如果存在）
+          if [ -f "pyramid/build.gradle" ]; then
+            sed -i 's|buildPython.*|buildPython "python3"|' pyramid/build.gradle
+            grep -n "buildPython" pyramid/build.gradle || true
+          else
+            echo "pyramid/build.gradle not found, skipping buildPython fix."
+          fi
 
-        # 可选：打印确认是否替换成功
-        grep -n "buildPython" pyramid/build.gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
-    - name: Grant execute permission for gradlew
-      run: chmod +x ./gradlew
+      - name: Modify Version Name and About Dialog (Optional)
+        run: |
+          TAG=$(date -u +"%Y%m%d-%H%M")
+          echo "Using version tag: $TAG"
+          sed -i "/versionName/s#[0-9a-zA-Z_\.\'\"-]\+\$#\'$TAG\'#" app/build.gradle
+          if [ -f "app/src/main/res/layout/dialog_about.xml" ]; then
+            sed -i "/android:text=/s#=\"#=\"${TAG}\\\\n\\\\n#" app/src/main/res/layout/dialog_about.xml
+          fi
 
-    - name: Build debug APK
-      run: ./gradlew assembleDebug
+      - name: Build With Gradle
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --build-cache --parallel
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: app-debug-apk
-        path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Prepare Artifacts
+        run: |
+          mkdir -p release/
+          find . -path "*/build/outputs/apk/release/*.apk" -exec cp {} release/ \;
+          tar -cJf release/source-code.tar.xz --exclude=.git --exclude=.github --exclude=release .
+
+      - name: Upload to GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: "latest"
+          name: "Latest Build"
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: |
+            release/*.apk
+            release/source-code.tar.xz
