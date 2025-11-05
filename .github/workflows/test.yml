@@ -11,28 +11,42 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 11  # 关键修改：AGP 7.4+ 必须用 Java 11
+      # 关键新增步骤：创建 local.properties 文件，指定 Android SDK 路径
+      - name: Create local.properties
+        run: |
+          echo "sdk.dir=/usr/lib/android-sdk" > ${{ github.workspace }}/local.properties
+          # 验证文件是否创建成功（可选，用于调试）
+          cat ${{ github.workspace }}/local.properties
+
+      - name: Set up JDK 11
         uses: actions/setup-java@v3
         with:
           java-version: '11'
           distribution: 'temurin'
-          cache: gradle  # 缓存 Gradle 依赖，加速构建
+          cache: gradle
+
+      # 可选步骤：安装 Android SDK 组件（如果项目需要特定版本）
+      - name: Install Android SDK Components
+        uses: android-actions/setup-android@v3
+        with:
+          # 这里可以指定项目需要的 compileSdkVersion（比如 33、34，根据你的 build.gradle 配置）
+          api-level: 33
+          build-tools: 33.0.2  # 对应你项目中的 buildToolsVersion
 
       - name: Build With Gradle
         run: |
           chmod +x gradlew
-          ./gradlew clean assembleRelease \  # 增加 clean 避免缓存冲突
+          ./gradlew clean assembleRelease \
             --build-cache \
             --parallel \
             --daemon \
             --warning-mode all \
-            -Dorg.gradle.java.home=$JAVA_HOME  # 明确指定 Java 路径
+            -Dorg.gradle.java.home=$JAVA_HOME
 
       - name: Prepare APK
         run: |
           mkdir -p ${{ github.workspace }}/apk/
           find . -name "*.apk" -type f -exec cp {} ${{ github.workspace }}/apk/ \;
-          # 打印找到的 APK 文件，便于调试
           echo "Found APK files:"
           ls -l ${{ github.workspace }}/apk/
 
@@ -40,5 +54,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: box
-          path: ${{ github.workspace }}/apk/*.apk  # 明确匹配 APK 文件
-          retention-days: 30  # 可选：设置 artifacts 保留时间
+          path: ${{ github.workspace }}/apk/*.apk
+          retention-days: 30
