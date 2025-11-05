@@ -21,6 +21,14 @@ jobs:
     - name: Create local.properties
       run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
+    - name: Fix buildPython path for CI (replace Windows path with python3)
+      run: |
+        # 替换 pyramid/build.gradle 中的 buildPython 行
+        sed -i 's|buildPython.*|buildPython "python3"|' pyramid/build.gradle
+
+        # 可选：打印确认是否替换成功
+        grep -n "buildPython" pyramid/build.gradle
+
     - name: Grant execute permission for gradlew
       run: chmod +x ./gradlew
 
