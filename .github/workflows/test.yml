@@ -1,9 +1,11 @@
-name: Build and Release
-
+name: Build Box
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      rebuild:
+        description: '强制重新构建（忽略缓存）'
+        type: boolean
+        required: false
 
 jobs:
   build:
@@ -13,43 +15,56 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set Up Java
+      - name: Set Up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: Set Up Python 3.8
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install Python Dependencies (Bypass Chaquopy pip)
+        run: |
+          python -m pip install --upgrade pip
+          pip install lxml ujson pyquery requests jsonpath cachetools pycryptodome beautifulsoup4
+
       - name: Create local.properties
         run: echo "sdk.dir=/usr/local/lib/android/sdk" > local.properties
 
-      - name: Fix buildPython path for CI
+      - name: Fix pyramid/build.gradle (Remove Windows Python Path)
+        if: ${{ hashFiles('pyramid/build.gradle') != '' }}
         run: |
-          # 替换 pyramid/build.gradle 中的 buildPython 行（如果存在）
-          if [ -f "pyramid/build.gradle" ]; then
-            sed -i 's|buildPython.*|buildPython "python3"|' pyramid/build.gradle
-            grep -n "buildPython" pyramid/build.gradle || true
-          else
-            echo "pyramid/build.gradle not found, skipping buildPython fix."
+          sed -i '/buildPython.*python\.exe/d' pyramid/build.gradle
+          # 可选：确认是否还有 buildPython 行（调试用）
+          grep -n "buildPython" pyramid/build.gradle || true
+
+      - name: Set Version Tag
+        run: |
+          TAG=$(date -u +"%Y%m%d-%H%M")
+          echo "BUILD_TAG=$TAG" >> $GITHUB_ENV
+          echo "Using version tag: $TAG"
+
+      - name: Update Version in build.gradle and About Dialog
+        run: |
+          # Update versionName
+          sed -i "/versionName/s#[0-9a-zA-Z_\.\'\"-]\+\$#\'${{ env.BUILD_TAG }}\'#" app/build.gradle
+          # Update about dialog
+          if [ -f "app/src/main/res/layout/dialog_about.xml" ]; then
+            sed -i "/android:text=/s#=\"#=\"${{ env.BUILD_TAG }}\\\\n\\\\n#" app/src/main/res/layout/dialog_about.xml
           fi
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Modify Version Name and About Dialog (Optional)
-        run: |
-          TAG=$(date -u +"%Y%m%d-%H%M")
-          echo "Using version tag: $TAG"
-          sed -i "/versionName/s#[0-9a-zA-Z_\.\'\"-]\+\$#\'$TAG\'#" app/build.gradle
-          if [ -f "app/src/main/res/layout/dialog_about.xml" ]; then
-            sed -i "/android:text=/s#=\"#=\"${TAG}\\\\n\\\\n#" app/src/main/res/layout/dialog_about.xml
-          fi
-
-      - name: Build With Gradle
+      - name: Build Release APK
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --build-cache --parallel
 
-      - name: Prepare Artifacts
+      - name: Collect Artifacts
         run: |
           mkdir -p release/
           find . -path "*/build/outputs/apk/release/*.apk" -exec cp {} release/ \;
@@ -59,7 +74,8 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           tag: "latest"
-          name: "Latest Build"
+          name: "Latest Build (${{ env.BUILD_TAG }})"
+          body: "Auto-built on ${{ env.BUILD_TAG }}"
           allowUpdates: true
           removeArtifacts: true
           artifacts: |
